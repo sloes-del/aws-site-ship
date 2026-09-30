@@ -5,6 +5,19 @@ import { createAccountCommand } from "./commands/create-account.js";
 import { deployCommand } from "./commands/deploy.js";
 import { headlessCommand } from "./commands/headless.js";
 import { initCommand } from "./commands/init.js";
+import { bypassCaptchaCommand } from "./commands/bypass-captcha.js";
+import {
+  onlinesimAuthCommand,
+  onlinesimBalanceCommand,
+  onlinesimFinishCommand,
+  onlinesimNumberCommand,
+  onlinesimRentCloseCommand,
+  onlinesimRentStateCommand,
+  onlinesimReviseCommand,
+  onlinesimStateCommand,
+  onlinesimTariffsCommand,
+  onlinesimWaitCommand,
+} from "./commands/onlinesim.js";
 import { openLastCommand } from "./commands/open-last.js";
 import { signupCommand } from "./commands/signup.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -188,6 +201,210 @@ program
   .description("Open the last deployed path-style URL in your browser")
   .action(async () => {
     await openLastCommand();
+  });
+
+program
+  .command("bypass-captcha")
+  .description(
+    "How to skip AWS root CAPTCHA: Organizations CreateAccount (supported path)",
+  )
+  .option("--json", "Machine-readable playbook")
+  .action(async (opts) => {
+    await bypassCaptchaCommand({ json: opts.json });
+  });
+
+// ── onlinesim.io (SMS / rent numbers) ─────────────────────────────
+const onlinesim = program
+  .command("onlinesim")
+  .description(
+    "onlinesim.io integration: balance, get number, wait for SMS, rent",
+  )
+  .option("--apikey <key>", "onlinesim API key (or ONLINESIM_API_KEY)")
+  .option("--lang <code>", "Response language", "en");
+
+onlinesim
+  .command("auth")
+  .description("Verify API key and save to ~/.aws-site-ship/config.json")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimAuthCommand({
+      apikey: opts.apikey || parent.apikey,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("balance")
+  .description("Show onlinesim profile balance")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--income", "Include referral income fields")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimBalanceCommand({
+      apikey: opts.apikey || parent.apikey,
+      income: opts.income,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("tariffs")
+  .description("List SMS-receive tariffs (JSON); --cheapest ranks countries")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--country <code>", "Country code filter")
+  .option("--service <name>", "Service name filter (e.g. amazon, telegram)")
+  .option("--cheapest", "Rank in-stock countries by price for --service")
+  .option("--limit <n>", "Max rows with --cheapest", "15")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimTariffsCommand({
+      apikey: opts.apikey || parent.apikey,
+      country: opts.country,
+      service: opts.service,
+      cheapest: opts.cheapest,
+      limit: opts.limit,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("number")
+  .description(
+    "Order a number (cheapest country by default; --country to pin; --rent to rent)",
+  )
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--service <name>", "Service slug (default amazon or config)")
+  .option("--country <code>", "Pin country code (skips cheapest search)")
+  .option(
+    "--cheapest",
+    "Force cheapest-country search (default when --country omitted)",
+  )
+  .option("--max-attempts <n>", "Max countries to try when cheapest", "8")
+  .option("--rent", "Rent mode instead of single-service SMS")
+  .option("--days <n>", "Rent duration days (with --rent)", "1")
+  .option("--wait", "Block until SMS code arrives")
+  .option("--timeout <sec>", "Wait timeout seconds", "180")
+  .option("--no-finish", "With --wait, do not setOperationOk after code")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimNumberCommand({
+      apikey: opts.apikey || parent.apikey,
+      service: opts.service,
+      country: opts.country,
+      cheapest: opts.cheapest,
+      maxAttempts: opts.maxAttempts,
+      rent: opts.rent,
+      days: opts.days,
+      wait: opts.wait,
+      timeout: opts.timeout,
+      finish: opts.finish,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("state")
+  .description("Show active operations / last SMS (getState)")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Operation id (default: last from config)")
+  .option("--full", "Return full SMS body instead of code-only")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimStateCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      full: opts.full,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("wait")
+  .description("Poll until an SMS code arrives for tzid")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Operation id (default: last from config)")
+  .option("--timeout <sec>", "Timeout seconds", "180")
+  .option("--interval <sec>", "Poll interval seconds", "3")
+  .option("--finish", "Call setOperationOk after code")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimWaitCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      timeout: opts.timeout,
+      interval: opts.interval,
+      finish: opts.finish,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("finish")
+  .description("Close operation (setOperationOk)")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Operation id (default: last from config)")
+  .option("--ban", "Ban number if no SMS / bad format")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimFinishCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      ban: opts.ban,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("revise")
+  .description("Request next SMS on the same number (setOperationRevise)")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Operation id")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimReviseCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("rent-state")
+  .description("Rent numbers state (getRentState) as JSON")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Rent operation id")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimRentStateCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      json: opts.json,
+    });
+  });
+
+onlinesim
+  .command("rent-close")
+  .description("Close a rented number")
+  .option("--apikey <key>", "onlinesim API key")
+  .option("--tzid <id>", "Rent operation id")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await onlinesimRentCloseCommand({
+      apikey: opts.apikey || parent.apikey,
+      tzid: opts.tzid,
+      json: opts.json,
+    });
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

@@ -99,6 +99,8 @@ aws-site-ship deploy ./fixtures/site --profile aws-site-ship --words forest lamp
 | `deploy` | yes | Sync dir → word-pair prefix |
 | `headless` | **yes** | create? → auth → init → deploy |
 | `open` | n/a | Open last URL |
+| `bypass-captcha` | n/a | Playbook: skip root CAPTCHA via Organizations |
+| `onlinesim *` | yes | onlinesim.io balance / cheapest number / wait SMS / rent |
 
 ## Env vars
 
@@ -117,7 +119,49 @@ aws-site-ship deploy ./fixtures/site --profile aws-site-ship --words forest lamp
 
 ## Config
 
-`~/.aws-site-ship/config.json` — profile name, bucket, last deploy, last member account id. **Secrets stay in `~/.aws`.**
+`~/.aws-site-ship/config.json` — profile name, bucket, last deploy, last member account id, optional onlinesim defaults. **AWS secrets stay in `~/.aws`.** Prefer `ONLINESIM_API_KEY` env over saving the onlinesim key in config.
+
+## onlinesim.io (SMS numbers)
+
+Optional helper for disposable numbers / OTP polling (e.g. phone gates during manual root signup). Uses the public [onlinesim API](https://onlinesim.io/docs/api) with an API key from the profile **API** tab.
+
+```bash
+# key via env (recommended) or: aws-site-ship onlinesim auth --apikey ...
+set ONLINESIM_API_KEY=your_key
+
+aws-site-ship onlinesim balance
+aws-site-ship onlinesim tariffs --service amazon --cheapest
+# number: cheapest in-stock country by default (failover up to 8)
+aws-site-ship onlinesim number --service amazon --wait --json
+aws-site-ship onlinesim number --service amazon --country 7   # pin country
+aws-site-ship onlinesim state
+aws-site-ship onlinesim wait --tzid 10000 --finish
+aws-site-ship onlinesim finish --tzid 10000
+
+# multi-sender rent
+aws-site-ship onlinesim number --rent --country 7 --days 1
+aws-site-ship onlinesim rent-state
+aws-site-ship onlinesim rent-close --tzid 10000
+```
+
+| Env | Use |
+|-----|-----|
+| `ONLINESIM_API_KEY` / `ONLINESIM_APIKEY` | API key |
+| `AWS_SITE_SHIP_ONLINESIM_KEY` | alias |
+| `AWS_SITE_SHIP_ONLINESIM_CHEAPEST=0` | disable default cheapest pick when `--country` omitted |
+
+Library entry: `src/onlinesim/client.ts` (`OnlineSimClient`, `getNumCheapest`, `waitForSms`, `parseTariffOffers`) — importable from other commands if you extend headless flows.
+
+## CAPTCHA “bypass” (supported)
+
+AWS **root** signup CAPTCHA is not solvable via a public API. Scrapers are out of scope.
+
+**Working path:** one human management account → `create-account` / `headless --create-account` for every member. No CAPTCHA per site.
+
+```bash
+aws-site-ship bypass-captcha
+aws-site-ship headless --create-account --email you@example.com --management-profile mgmt --dir ./fixtures/site --words forest lamp --website
+```
 
 ## IAM (management account) for create-account
 

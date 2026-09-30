@@ -53,5 +53,27 @@ export async function signupCommand(opts: {
   }
 
   log.blank();
+  log.title("Skip CAPTCHA entirely (recommended)");
+  log.ok("Do not fight root CAPTCHA — use Organizations member accounts:");
+  log.dim("  aws-site-ship bypass-captcha");
+  log.dim(
+    "  aws-site-ship headless --create-account --email you@example.com --management-profile mgmt --dir ./dist --words forest lamp",
+  );
+  log.blank();
+  log.title("Phone SMS helper only (onlinesim.io)");
+  log.info(
+    "If you still do manual root signup, OTP can use cheapest onlinesim country:",
+  );
+  log.dim("  set ONLINESIM_API_KEY=...   # https://onlinesim.io/v2/profile/ API tab");
+  log.dim("  aws-site-ship onlinesim balance");
+  log.dim(
+    "  aws-site-ship onlinesim number --service amazon --cheapest --wait --json",
+  );
+  log.dim("  aws-site-ship onlinesim wait --tzid <id>   # if you skipped --wait");
+  log.warn(
+    "Root CAPTCHA + payment stay human. CAPTCHA bypass = create-account, not a solver.",
+  );
+
+  log.blank();
   log.info("Then: aws-site-ship auth -y   OR   aws-site-ship headless ...");
 }

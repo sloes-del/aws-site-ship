@@ -17,6 +17,21 @@ export type ShipConfig = {
   lastMemberAccountId?: string;
   lastMemberEmail?: string;
   lastMemberProfile?: string;
+  /**
+   * onlinesim.io API key (optional local convenience).
+   * Prefer ONLINESIM_API_KEY env in CI — this field is never printed by whoami.
+   */
+  onlinesimApiKey?: string;
+  onlinesimDefaultCountry?: string;
+  onlinesimDefaultService?: string;
+  lastOnlineSim?: {
+    tzid: number;
+    number?: string;
+    service?: string;
+    country?: string;
+    mode?: "sms" | "rent";
+    at: string;
+  };
 };
 
 const DIR = join(homedir(), ".aws-site-ship");
