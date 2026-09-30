@@ -33,7 +33,10 @@ import {
 import { openLastCommand } from "./commands/open-last.js";
 import { signupCommand } from "./commands/signup.js";
 import { whoamiCommand } from "./commands/whoami.js";
+import { loadEnv } from "./env.js";
 import { fail } from "./ui.js";
+
+loadEnv();
 
 const program = new Command();
 

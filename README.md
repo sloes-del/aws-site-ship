@@ -117,6 +117,17 @@ aws-site-ship deploy ./fixtures/site --profile aws-site-ship --words forest lamp
 | `AWS_SITE_SHIP_PRIVATE=1` | headless skips public policy |
 | `AWS_SITE_SHIP_WEBSITE=1` | headless enables website endpoint |
 | `AWS_SITE_SHIP_NO_STAMP=1` | disable email plus-stamp |
+| `ONLINESIM_API_KEY` | onlinesim.io API key |
+| `MERCURY_API_TOKEN` | Mercury API token (`secret-token:…`) |
+
+### Local `.env`
+
+```bash
+cp .env.example .env
+# edit ONLINESIM_API_KEY=... and MERCURY_API_TOKEN=...
+```
+
+`.env` is gitignored. The CLI auto-loads `./.env` (and `~/.aws-site-ship/.env`) on startup — shell env still wins.
 
 ## Config
 

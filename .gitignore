@@ -3,6 +3,7 @@ dist/
 *.log
 .env
 .env.*
+!.env.example
 .DS_Store
 *.tsbuildinfo
 .aws-site-ship-local.json
