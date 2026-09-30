@@ -14,10 +14,10 @@ import {
 import {
   TEMP_TF_URL,
   TempMailClient,
-  TempMailError,
   extractEmailCode,
   extractVerifyLink,
 } from "../tempmail/client.js";
+import { runAwsSignupWithPlaywright } from "../browser/playwright.js";
 import { loadConfig, saveConfig } from "../config.js";
 import { stampEmail } from "../headless.js";
 import { fail, log, printJson } from "../ui.js";
@@ -29,20 +29,10 @@ function randPassword(): string {
   return `Aw5-${randomBytes(9).toString("base64url")}!a1`;
 }
 
-/**
- * Best-effort AWS root auto-signup pack:
- *  - disposable email (mail.tm API; temp.tf opened in browser — no temp.tf API)
- *  - OnlineSim cheapest Amazon number + optional SMS wait
- *  - Mercury $1/day virtual debit (cancel next day)
- *  - Opens AWS signup in a real browser
- *
- * Does NOT solve CAPTCHA or submit the AWS form via Puppeteer.
- */
 export async function autoSignupCommand(opts: {
   email?: string;
   accountName?: string;
   service?: string;
-  /** reuse existing onlinesim tzid */
   tzid?: string;
   number?: string;
   waitSms?: boolean;
@@ -53,23 +43,23 @@ export async function autoSignupCommand(opts: {
   skipEmail?: boolean;
   noOpen?: boolean;
   openTempTf?: boolean;
+  playwright?: boolean;
+  headless?: boolean;
+  freshPhone?: boolean;
   json?: boolean;
 }): Promise<void> {
   const timeoutMs = Number(opts.timeout || 180) * 1000;
   const service = opts.service || "amazon";
   const cfg = loadConfig();
+  const usePlaywright =
+    Boolean(opts.playwright) || process.env.AWS_SITE_SHIP_PLAYWRIGHT === "1";
 
   const pack: {
     ok: boolean;
     mode: string;
     accountName: string;
     password: string;
-    email?: {
-      address: string;
-      password: string;
-      provider: string;
-      inboxUrl?: string;
-    };
+    email?: { address: string; password: string; provider: string; inboxUrl?: string };
     phone?: {
       number?: string;
       tzid?: number;
@@ -85,14 +75,18 @@ export async function autoSignupCommand(opts: {
       cancelAt?: string;
       dashboard: string;
     };
-    aws: {
-      signupUrl: string;
-      manualGates: string[];
+    playwright?: {
+      url: string;
+      filled: string[];
+      skipped: string[];
+      userDataDir: string;
+      note: string;
     };
+    aws: { signupUrl: string; manualGates: string[] };
     next: string[];
   } = {
     ok: true,
-    mode: "auto-signup-assisted",
+    mode: usePlaywright ? "auto-signup-playwright" : "auto-signup-assisted",
     accountName:
       opts.accountName ||
       process.env.AWS_SITE_SHIP_ACCOUNT_NAME ||
@@ -101,82 +95,89 @@ export async function autoSignupCommand(opts: {
     aws: {
       signupUrl: AWS_SIGNUP_URL,
       manualGates: [
-        "CAPTCHA / fraud challenge",
-        "Payment method confirmation (use Mercury card in browser)",
-        "Final human clicks in the opened AWS signup tab",
+        "CAPTCHA / fraud challenge (in Playwright window if --playwright)",
+        "Payment method confirmation (Mercury card PAN from dashboard / reveal)",
+        "Final human clicks",
       ],
     },
     next: [],
   };
 
-  log.title("auto-signup (assisted — no CAPTCHA solver)");
-  log.warn(
-    "AWS root CAPTCHA stays human. We auto-provision email + SMS + $1 Mercury card and open the browser.",
+  log.title(
+    usePlaywright
+      ? "auto-signup (Playwright isolated Chromium)"
+      : "auto-signup (assisted)",
   );
+  if (usePlaywright) {
+    log.ok("Using Playwright profile under ~/.aws-site-ship/pw-chromium — not your main browser.");
+  }
 
-  // ── Email (mail.tm API) ─────────────────────────────────────────
-  if (!opts.skipEmail) {
+  if (opts.email) {
+    const address =
+      process.env.AWS_SITE_SHIP_NO_STAMP === "1" ? opts.email : stampEmail(opts.email);
+    pack.email = { address, password: "(your inbox)", provider: "provided" };
+    log.ok(`Email (provided) ${address}`);
+  } else if (!opts.skipEmail) {
     try {
-      if (opts.email) {
-        const address =
-          process.env.AWS_SITE_SHIP_NO_STAMP === "1"
-            ? opts.email
-            : stampEmail(opts.email);
-        pack.email = {
-          address,
-          password: "(your inbox)",
-          provider: "provided",
-        };
-        log.ok(`Email (provided) ${address}`);
-      } else {
-        log.info("Creating disposable inbox via mail.tm API…");
-        log.dim(
-          `(temp.tf has no public API — use --open-temp-tf to open ${TEMP_TF_URL} in browser)`,
-        );
-        const tm = new TempMailClient();
-        const inbox = await tm.createInbox();
-        pack.email = {
+      log.info("Creating disposable inbox via mail.tm API…");
+      const tm = new TempMailClient();
+      const inbox = await tm.createInbox();
+      pack.email = {
+        address: inbox.address,
+        password: inbox.password,
+        provider: "mail.tm",
+        inboxUrl: "https://mail.tm/",
+      };
+      saveConfig({
+        lastTempMail: {
+          id: inbox.id,
           address: inbox.address,
           password: inbox.password,
+          token: inbox.token,
           provider: "mail.tm",
-          inboxUrl: "https://mail.tm/",
-        };
-        saveConfig({
-          lastTempMail: {
-            id: inbox.id,
-            address: inbox.address,
-            password: inbox.password,
-            token: inbox.token,
-            provider: "mail.tm",
-            at: new Date().toISOString(),
-          },
-        });
-        log.ok(`Email ${inbox.address}`);
-      }
+          at: new Date().toISOString(),
+        },
+      });
+      log.ok(`Email ${inbox.address}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log.warn(`temp mail failed: ${msg}`);
-      log.dim(`Open ${TEMP_TF_URL} in browser and copy an address manually.`);
       pack.next.push(`Use a temp.tf address from ${TEMP_TF_URL}`);
     }
   }
 
-  if (opts.openTempTf) {
-    log.info(`Opening temp.tf in browser: ${TEMP_TF_URL}`);
-    await open(TEMP_TF_URL);
-  }
+  if (opts.openTempTf && !usePlaywright) await open(TEMP_TF_URL);
 
-  // ── Phone (onlinesim) ───────────────────────────────────────────
   if (!opts.skipPhone) {
     const apiKey = resolveOnlineSimApiKey() || cfg.onlinesimApiKey;
-    if (!apiKey) {
-      fail("ONLINESIM_API_KEY missing in .env", 2);
-    }
+    if (!apiKey) fail("ONLINESIM_API_KEY missing in .env", 2);
     const os = new OnlineSimClient({ apiKey, lang: "en" });
     try {
-      let tzid = opts.tzid ? Number(opts.tzid) : cfg.lastOnlineSim?.tzid;
-      let number = opts.number || cfg.lastOnlineSim?.number;
-      let country = cfg.lastOnlineSim?.country;
+      let tzid: number | undefined = opts.tzid
+        ? Number(opts.tzid)
+        : opts.freshPhone
+          ? undefined
+          : cfg.lastOnlineSim?.tzid;
+      let number: string | undefined =
+        opts.number || (opts.freshPhone ? undefined : cfg.lastOnlineSim?.number);
+      let country: string | undefined = opts.freshPhone
+        ? undefined
+        : cfg.lastOnlineSim?.country;
+
+      if (tzid && !opts.freshPhone && !opts.tzid) {
+        try {
+          const st = await os.getState({ tzid });
+          if (!st.length) {
+            log.warn(`onlinesim tzid=${tzid} gone — ordering fresh`);
+            tzid = undefined;
+            number = undefined;
+          }
+        } catch {
+          log.warn(`onlinesim tzid=${tzid} invalid — ordering fresh`);
+          tzid = undefined;
+          number = undefined;
+        }
+      }
 
       if (!tzid || !number) {
         log.info(`Ordering cheapest ${service} number…`);
@@ -184,11 +185,7 @@ export async function autoSignupCommand(opts: {
           service,
           number: true,
           onAttempt: (offer, i, err) => {
-            if (!err && i === 0) {
-              log.info(
-                `  try country ${offer.country} @ ${offer.price}`,
-              );
-            }
+            if (!err && i === 0) log.info(`  try country ${offer.country} @ ${offer.price}`);
           },
         });
         tzid = got.tzid;
@@ -208,24 +205,16 @@ export async function autoSignupCommand(opts: {
         log.info(`Reusing onlinesim tzid=${tzid} number=${number}`);
       }
 
-      pack.phone = {
-        number,
-        tzid,
-        country,
-        service,
-      };
-
+      pack.phone = { number, tzid, country, service };
       if (opts.waitSms) {
-        log.info(`Waiting for SMS on ${number} (timeout ${timeoutMs / 1000}s)…`);
+        log.info(`Waiting for SMS on ${number}…`);
         const sms = await os.waitForSms({
           tzid: tzid!,
           timeoutMs,
           fullMessage: true,
           onTick: (st, attempt) => {
             if (attempt === 1 || attempt % 5 === 0) {
-              log.dim(
-                `  sms poll #${attempt} ${st?.response ?? "?"} msg=${st?.msg ? "yes" : "no"}`,
-              );
+              log.dim(`  sms poll #${attempt} ${st?.response ?? "?"} msg=${st?.msg ? "yes" : "no"}`);
             }
           },
         });
@@ -233,33 +222,24 @@ export async function autoSignupCommand(opts: {
         pack.phone.fullMessage = sms.fullMessage;
         log.ok(`SMS code ${sms.code}`);
       } else {
-        log.dim(
-          `When AWS sends the code: aws-site-ship onlinesim wait --tzid ${tzid} --json`,
-        );
-        pack.next.push(
-          `aws-site-ship onlinesim wait --tzid ${tzid} --json`,
-        );
+        pack.next.push(`aws-site-ship onlinesim wait --tzid ${tzid} --json`);
       }
     } catch (e) {
-      if (e instanceof OnlineSimError) {
-        fail(`onlinesim ${e.code}`, 3);
-      }
+      if (e instanceof OnlineSimError) fail(`onlinesim ${e.code}`, 3);
       throw e;
     }
   }
 
-  // ── Mercury $1 card ─────────────────────────────────────────────
   if (!opts.skipMercury) {
     const token = resolveMercuryToken() || cfg.mercuryApiToken;
-    if (!token) {
-      log.warn("MERCURY_API_TOKEN missing — skipping card");
-    } else {
+    if (!token) log.warn("MERCURY_API_TOKEN missing — skipping card");
+    else {
       try {
         const mercury = new MercuryClient({ token });
         const policy = defaultDebitPolicy();
         const account = await mercury.pickDebitAccount(cfg.mercuryAccountId);
         const user = await mercury.pickUser(cfg.mercuryUserId);
-        log.info("Issuing Mercury virtual debit ($1 / daily, cancel next midnight)…");
+        log.info("Issuing Mercury virtual debit ($1 / daily)…");
         const card = await mercury.createDebitCard({
           accountId: account.id,
           userId: user.id,
@@ -291,79 +271,101 @@ export async function autoSignupCommand(opts: {
           dashboard: MERCURY_CARDS_URL,
         };
         log.ok(`Mercury card *${card.lastFour} id=${card.id}`);
-        log.dim("Reveal PAN/CVC in browser (or mercury reveal if agent card)");
-        pack.next.push("aws-site-ship mercury open --cards");
-        pack.next.push("aws-site-ship mercury cancel-due   # after cancelAt");
+        pack.next.push("aws-site-ship mercury cancel-due");
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn(`Mercury card failed: ${msg}`);
-        if (/ipNotWhitelisted|whitelist/i.test(msg)) {
-          log.warn(
-            "Mercury token IP whitelist blocked this machine — add your IP in the dashboard (browser).",
-          );
-          log.dim("  aws-site-ship mercury open --tokens");
-          if (!opts.noOpen) {
-            await open("https://app.mercury.com/settings/tokens");
-          }
+        if (/ipNotWhitelisted|whitelist/i.test(msg) && !usePlaywright && !opts.noOpen) {
+          await open("https://app.mercury.com/settings/tokens");
         }
-        log.dim("Continue signup; add payment manually in AWS browser flow.");
       }
     }
   }
 
-  // ── Open AWS signup (real browser) ──────────────────────────────
-  if (!opts.noOpen) {
-    log.info(`Opening AWS signup: ${AWS_SIGNUP_URL}`);
-    await open(AWS_SIGNUP_URL);
+  if (usePlaywright) {
+    if (!pack.email?.address) fail("Playwright signup needs an email", 2);
+    log.info("Launching isolated Playwright Chromium…");
+    const { result, context, page } = await runAwsSignupWithPlaywright({
+      email: pack.email.address,
+      accountName: pack.accountName,
+      password: pack.password,
+      phone: pack.phone?.number,
+      headless: Boolean(opts.headless),
+      holdForHuman: true,
+    });
+    pack.playwright = result;
+    log.ok(`Playwright filled: ${result.filled.join(", ") || "(none)"}`);
+    if (result.skipped.length) log.dim(`Skipped: ${result.skipped.join(", ")}`);
+    log.info(`URL: ${result.url}`);
+    log.dim(`Profile: ${result.userDataDir}`);
+
     if (pack.mercury) {
-      await open(MERCURY_CARDS_URL);
+      const mercPage = await context.newPage();
+      await mercPage.goto(MERCURY_CARDS_URL, {
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
+      });
+      log.ok("Opened Mercury cards inside Playwright");
     }
+
+    saveConfig({
+      lastAutoSignup: {
+        accountName: pack.accountName,
+        email: pack.email?.address,
+        phone: pack.phone?.number,
+        tzid: pack.phone?.tzid,
+        mercuryCardId: pack.mercury?.cardId,
+        at: new Date().toISOString(),
+      },
+    });
+
+    if (opts.json) {
+      printJson(pack);
+      if (opts.headless) await context.close();
+      return;
+    }
+
+    if (!opts.headless) {
+      log.blank();
+      log.title("Signup pack — Playwright window open (not your main browser)");
+      console.log(`  Account name  ${pack.accountName}`);
+      console.log(`  Password      ${pack.password}`);
+      console.log(`  Email         ${pack.email.address}`);
+      if (pack.phone?.number) console.log(`  Phone         ${pack.phone.number}`);
+      if (pack.mercury) console.log(`  Card          Mercury *${pack.mercury.lastFour}`);
+      log.warn("Solve CAPTCHA in the Chromium window. Ctrl+C when done.");
+      await new Promise<void>(() => {
+        void page;
+      });
+      return;
+    }
+    await context.close();
+  } else if (!opts.noOpen) {
+    await open(AWS_SIGNUP_URL);
+    if (pack.mercury) await open(MERCURY_CARDS_URL);
   }
 
-  // ── Optional email wait ─────────────────────────────────────────
   const lastMail = loadConfig().lastTempMail;
   if (opts.waitEmail && lastMail?.token) {
     try {
-      log.info("Waiting for AWS verification email…");
       const tm = new TempMailClient();
       const msg = await tm.waitForMessage({
         token: lastMail.token,
         timeoutMs,
         match: /amazon|aws|verify|confirm/i,
-        onTick: (n, attempt) => {
-          if (attempt === 1 || attempt % 5 === 0) {
-            log.dim(`  email poll #${attempt} messages=${n}`);
-          }
-        },
       });
       const link = extractVerifyLink(msg);
       const code = extractEmailCode(msg);
-      log.ok(`Email subject: ${msg.subject}`);
       if (code) log.ok(`Email code: ${code}`);
-      if (link) {
-        log.ok(`Verify link: ${link}`);
-        if (!opts.noOpen) await open(link);
-      }
-      (pack as { emailMessage?: unknown }).emailMessage = {
-        subject: msg.subject,
-        code,
-        link,
-      };
+      if (link) log.ok(`Verify link: ${link}`);
     } catch (e) {
-      log.warn(
-        `Email wait: ${e instanceof Error ? e.message : String(e)}`,
-      );
-      pack.next.push("aws-site-ship auto-signup --wait-email   # retry poll");
+      log.warn(`Email wait: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   pack.next.push(
-    "Fill AWS form in browser with printed email / phone / password / Mercury card",
+    "After account exists: aws-site-ship auth -y && aws-site-ship headless --dir ./fixtures/site --words forest lamp --website",
   );
-  pack.next.push(
-    "After account exists: aws-site-ship auth -y  then  aws-site-ship headless --dir ./fixtures/site --words forest lamp --website",
-  );
-
   saveConfig({
     lastAutoSignup: {
       accountName: pack.accountName,
@@ -380,19 +382,11 @@ export async function autoSignupCommand(opts: {
     return;
   }
 
-  log.blank();
-  log.title("Signup pack — paste into AWS browser form");
+  log.title("Signup pack");
   console.log(`  Account name  ${pack.accountName}`);
   console.log(`  Password      ${pack.password}`);
   if (pack.email) console.log(`  Email         ${pack.email.address}`);
   if (pack.phone?.number) console.log(`  Phone         ${pack.phone.number}`);
-  if (pack.phone?.code) console.log(`  SMS code      ${pack.phone.code}`);
-  if (pack.mercury) {
-    console.log(
-      `  Card          Mercury *${pack.mercury.lastFour} ($1/day) → ${pack.mercury.dashboard}`,
-    );
-  }
-  log.blank();
-  log.warn("You still click CAPTCHA + finish payment in the browser tab.");
+  if (pack.mercury) console.log(`  Card          *${pack.mercury.lastFour}`);
   for (const n of pack.next) log.dim(`  next: ${n}`);
 }

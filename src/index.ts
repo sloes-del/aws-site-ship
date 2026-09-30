@@ -95,21 +95,27 @@ program
 program
   .command("auto-signup")
   .description(
-    "Assisted AWS root signup pack: disposable email + OnlineSim phone + $1 Mercury card + open browser (no CAPTCHA solver)",
+    "Assisted AWS root signup: disposable email + OnlineSim + $1 Mercury + optional Playwright (isolated Chromium)",
   )
   .option("--email <email>", "Use this email instead of mail.tm disposable")
   .option("--account-name <name>", "AWS account name")
   .option("--service <name>", "onlinesim service slug", "amazon")
   .option("--tzid <id>", "Reuse existing onlinesim operation")
   .option("--number <e164>", "Reuse phone number label")
+  .option("--fresh-phone", "Always order a new OnlineSim number")
   .option("--wait-sms", "Block until SMS OTP arrives")
   .option("--wait-email", "Block until AWS-looking email arrives")
   .option("--timeout <sec>", "Wait timeout seconds", "180")
   .option("--skip-mercury", "Do not issue Mercury $1 card")
   .option("--skip-phone", "Do not order OnlineSim number")
   .option("--skip-email", "Do not create disposable inbox")
-  .option("--open-temp-tf", "Also open https://temp.tf/ in browser")
-  .option("--no-open", "Do not open AWS/Mercury browser tabs")
+  .option(
+    "--playwright",
+    "Fill AWS signup in isolated Playwright Chromium (not your main browser)",
+  )
+  .option("--headless", "Playwright headless (no visible window)")
+  .option("--open-temp-tf", "Also open https://temp.tf/ in system browser")
+  .option("--no-open", "Do not open system browser tabs")
   .option("--json", "Machine-readable signup pack")
   .action(async (opts) => {
     await autoSignupCommand({
@@ -118,6 +124,7 @@ program
       service: opts.service,
       tzid: opts.tzid,
       number: opts.number,
+      freshPhone: opts.freshPhone,
       waitSms: opts.waitSms,
       waitEmail: opts.waitEmail,
       timeout: opts.timeout,
@@ -125,10 +132,13 @@ program
       skipPhone: opts.skipPhone,
       skipEmail: opts.skipEmail,
       openTempTf: opts.openTempTf,
+      playwright: opts.playwright,
+      headless: opts.headless,
       noOpen: opts.open === false,
       json: opts.json,
     });
   });
+
 
 
 program

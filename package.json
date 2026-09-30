@@ -15,7 +15,15 @@
   "engines": {
     "node": ">=20"
   },
-  "keywords": ["aws", "s3", "cli", "static-site", "deploy", "headless", "organizations"],
+  "keywords": [
+    "aws",
+    "s3",
+    "cli",
+    "static-site",
+    "deploy",
+    "headless",
+    "organizations"
+  ],
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-iam": "^3.1143.0",
@@ -30,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "playwright": "^1.63.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
