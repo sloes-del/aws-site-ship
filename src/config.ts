@@ -52,6 +52,23 @@ export type ShipConfig = {
     status?: string;
     at: string;
   };
+  /** Disposable inbox from last auto-signup (mail.tm) */
+  lastTempMail?: {
+    id: string;
+    address: string;
+    password: string;
+    token: string;
+    provider: string;
+    at: string;
+  };
+  lastAutoSignup?: {
+    accountName: string;
+    email?: string;
+    phone?: string;
+    tzid?: number;
+    mercuryCardId?: string;
+    at: string;
+  };
 };
 
 const DIR = join(homedir(), ".aws-site-ship");

@@ -95,6 +95,7 @@ aws-site-ship deploy ./fixtures/site --profile aws-site-ship --words forest lamp
 | `auth` | yes with `-y` / keys | Write/verify profile |
 | `create-account` | **yes** | Org CreateAccount + IAM user/keys |
 | `signup` | no (browser) | Root checklist only |
+| `auto-signup` | partial | Disposable email + SMS + $1 Mercury + open AWS (CAPTCHA human) |
 | `init` | yes with `-y` | Bucket + optional public/website |
 | `deploy` | yes | Sync dir → word-pair prefix |
 | `headless` | **yes** | create? → auth → init → deploy |

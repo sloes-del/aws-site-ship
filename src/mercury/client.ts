@@ -191,18 +191,29 @@ export class MercuryClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(opts: MercuryClientOptions) {
-    const t = opts.token?.trim();
+    const t = opts.token?.trim().replace(/^["']|["']$/g, "");
     if (!t) throw new MercuryError("Missing Mercury API token", 0);
-    // Accept raw token or already-prefixed secret-token:…
+    // Normalize to secret-token:… when missing (docs show both styles)
     this.token = t.startsWith("secret-token:") ? t : t;
     this.baseUrl = (opts.baseUrl ?? DEFAULT_BASE).replace(/\/$/, "");
     this.vaultUrl = (opts.vaultUrl ?? DEFAULT_VAULT).replace(/\/$/, "");
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
-  private authHeader(): string {
-    // Docs support Bearer and basic-auth username=token password=""
-    return `Bearer ${this.token}`;
+  private authCandidates(): string[] {
+    const raw = this.token;
+    const prefixed = raw.startsWith("secret-token:")
+      ? raw
+      : `secret-token:${raw}`;
+    const basic = (t: string) =>
+      `Basic ${Buffer.from(`${t}:`).toString("base64")}`;
+    // Prefer docs-recommended bearer with secret-token prefix, then variants
+    return [
+      `Bearer ${prefixed}`,
+      `Bearer ${raw}`,
+      basic(prefixed),
+      basic(raw),
+    ];
   }
 
   async request<T = unknown>(
@@ -216,7 +227,9 @@ export class MercuryClient {
   ): Promise<T> {
     const root = opts?.base === "vault" ? this.vaultUrl : this.baseUrl;
     const url = new URL(
-      path.startsWith("http") ? path : `${root}${path.startsWith("/") ? path : `/${path}`}`,
+      path.startsWith("http")
+        ? path
+        : `${root}${path.startsWith("/") ? path : `/${path}`}`,
     );
     if (opts?.query) {
       for (const [k, v] of Object.entries(opts.query)) {
@@ -225,39 +238,50 @@ export class MercuryClient {
       }
     }
 
-    const res = await this.fetchImpl(url.toString(), {
-      method,
-      headers: {
-        Accept: "application/json",
-        Authorization: this.authHeader(),
-        ...(opts?.body !== undefined
-          ? { "Content-Type": "application/json" }
-          : {}),
-      },
-      body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    });
+    let lastStatus = 0;
+    let lastData: unknown = null;
+    for (const authorization of this.authCandidates()) {
+      const res = await this.fetchImpl(url.toString(), {
+        method,
+        headers: {
+          Accept: "application/json",
+          Authorization: authorization,
+          ...(opts?.body !== undefined
+            ? { "Content-Type": "application/json" }
+            : {}),
+        },
+        body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      });
 
-    const text = await res.text();
-    let data: unknown = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch {
-        data = text;
+      const text = await res.text();
+      let data: unknown = null;
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = text;
+        }
       }
+
+      if (res.ok) return data as T;
+
+      lastStatus = res.status;
+      lastData = data;
+      // Only rotate auth on 401/403
+      if (res.status !== 401 && res.status !== 403) break;
     }
 
-    if (!res.ok) {
-      const msg =
-        typeof data === "object" && data && "message" in data
-          ? String((data as { message: unknown }).message)
-          : typeof data === "string"
-            ? data.slice(0, 300)
-            : `HTTP ${res.status}`;
-      throw new MercuryError(`mercury ${method} ${path}: ${msg}`, res.status, data);
-    }
-
-    return data as T;
+    const msg =
+      typeof lastData === "object" && lastData && "message" in lastData
+        ? String((lastData as { message: unknown }).message)
+        : typeof lastData === "string"
+          ? lastData.slice(0, 300)
+          : `HTTP ${lastStatus}`;
+    throw new MercuryError(
+      `mercury ${method} ${path}: ${msg}`,
+      lastStatus,
+      lastData,
+    );
   }
 
   async listAccounts(): Promise<MercuryAccount[]> {

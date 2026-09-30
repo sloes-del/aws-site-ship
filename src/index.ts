@@ -1,6 +1,7 @@
 ﻿#!/usr/bin/env node
 import { Command } from "commander";
 import { authCommand } from "./commands/auth.js";
+import { autoSignupCommand } from "./commands/auto-signup.js";
 import { createAccountCommand } from "./commands/create-account.js";
 import { deployCommand } from "./commands/deploy.js";
 import { headlessCommand } from "./commands/headless.js";
@@ -90,6 +91,45 @@ program
   .action(async (opts) => {
     await signupCommand({ noOpen: opts.open === false });
   });
+
+program
+  .command("auto-signup")
+  .description(
+    "Assisted AWS root signup pack: disposable email + OnlineSim phone + $1 Mercury card + open browser (no CAPTCHA solver)",
+  )
+  .option("--email <email>", "Use this email instead of mail.tm disposable")
+  .option("--account-name <name>", "AWS account name")
+  .option("--service <name>", "onlinesim service slug", "amazon")
+  .option("--tzid <id>", "Reuse existing onlinesim operation")
+  .option("--number <e164>", "Reuse phone number label")
+  .option("--wait-sms", "Block until SMS OTP arrives")
+  .option("--wait-email", "Block until AWS-looking email arrives")
+  .option("--timeout <sec>", "Wait timeout seconds", "180")
+  .option("--skip-mercury", "Do not issue Mercury $1 card")
+  .option("--skip-phone", "Do not order OnlineSim number")
+  .option("--skip-email", "Do not create disposable inbox")
+  .option("--open-temp-tf", "Also open https://temp.tf/ in browser")
+  .option("--no-open", "Do not open AWS/Mercury browser tabs")
+  .option("--json", "Machine-readable signup pack")
+  .action(async (opts) => {
+    await autoSignupCommand({
+      email: opts.email,
+      accountName: opts.accountName,
+      service: opts.service,
+      tzid: opts.tzid,
+      number: opts.number,
+      waitSms: opts.waitSms,
+      waitEmail: opts.waitEmail,
+      timeout: opts.timeout,
+      skipMercury: opts.skipMercury,
+      skipPhone: opts.skipPhone,
+      skipEmail: opts.skipEmail,
+      openTempTf: opts.openTempTf,
+      noOpen: opts.open === false,
+      json: opts.json,
+    });
+  });
+
 
 program
   .command("create-account")
