@@ -7,6 +7,18 @@ import { headlessCommand } from "./commands/headless.js";
 import { initCommand } from "./commands/init.js";
 import { bypassCaptchaCommand } from "./commands/bypass-captcha.js";
 import {
+  mercuryAccountsCommand,
+  mercuryAuthCommand,
+  mercuryCancelCommand,
+  mercuryCancelDueCommand,
+  mercuryCardCommand,
+  mercuryListCommand,
+  mercuryOpenCommand,
+  mercuryPolicyCommand,
+  mercuryRevealCommand,
+  mercuryUsersCommand,
+} from "./commands/mercury.js";
+import {
   onlinesimAuthCommand,
   onlinesimBalanceCommand,
   onlinesimFinishCommand,
@@ -211,6 +223,171 @@ program
   .option("--json", "Machine-readable playbook")
   .action(async (opts) => {
     await bypassCaptchaCommand({ json: opts.json });
+  });
+
+// ── mercury.com (virtual debit cards) ─────────────────────────────
+const mercury = program
+  .command("mercury")
+  .description(
+    "Mercury API: virtual debit cards ($1 daily default, cancel next day). Browser for tokens/PAN — no automation.",
+  )
+  .option("--token <token>", "Mercury API token (or MERCURY_API_TOKEN)");
+
+mercury
+  .command("auth")
+  .description("Open token settings in browser; optionally save --token")
+  .option("--token <token>", "Mercury API token to verify + save")
+  .option("--no-open", "Do not open browser")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryAuthCommand({
+      token: opts.token || parent.token,
+      noOpen: opts.open === false,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("policy")
+  .description("Show default $1 / expire-next-day debit policy")
+  .option("--json", "Machine-readable output")
+  .action(async (opts) => {
+    await mercuryPolicyCommand({ json: opts.json });
+  });
+
+mercury
+  .command("accounts")
+  .description("List Mercury accounts")
+  .option("--token <token>", "Mercury API token")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryAccountsCommand({
+      token: opts.token || parent.token,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("users")
+  .description("List org users (cardholders must exist in dashboard first)")
+  .option("--token <token>", "Mercury API token")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryUsersCommand({
+      token: opts.token || parent.token,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("card")
+  .description(
+    "Issue virtual debit card: default $1 daily spend, schedule cancel next local midnight",
+  )
+  .option("--token <token>", "Mercury API token")
+  .option("--account <id>", "Funding account id")
+  .option("--user <id>", "Cardholder user id")
+  .option("--nickname <name>", "Card nickname")
+  .option("--budget <usd>", "Spend limit in dollars", "1")
+  .option("--interval <period>", "daily|weekly|monthly|yearly", "daily")
+  .option(
+    "--expire-hours <n>",
+    "Cancel after N hours instead of next local midnight",
+  )
+  .option("--no-cancel-schedule", "Do not store cancelAt for cancel-due")
+  .option("--no-open", "Do not open cards dashboard in browser")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryCardCommand({
+      token: opts.token || parent.token,
+      account: opts.account,
+      user: opts.user,
+      nickname: opts.nickname,
+      budget: opts.budget,
+      interval: opts.interval,
+      expireHours: opts.expireHours,
+      noCancelSchedule: opts.cancelSchedule === false,
+      open: opts.open,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("list")
+  .description("List cards")
+  .option("--token <token>", "Mercury API token")
+  .option("--account <id>", "Filter by account")
+  .option("--kind <kind>", "debit|credit", "debit")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryListCommand({
+      token: opts.token || parent.token,
+      account: opts.account,
+      kind: opts.kind,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("cancel")
+  .description("Cancel a card now (permanent)")
+  .option("--token <token>", "Mercury API token")
+  .option("--id <cardId>", "Card id (default: last created)")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryCancelCommand({
+      token: opts.token || parent.token,
+      id: opts.id,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("cancel-due")
+  .description("Cancel last card if cancelAt has passed (expire-next-day)")
+  .option("--token <token>", "Mercury API token")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryCancelDueCommand({
+      token: opts.token || parent.token,
+      json: opts.json,
+    });
+  });
+
+mercury
+  .command("open")
+  .description("Open Mercury dashboard pages in your real browser")
+  .option("--cards", "Cards page (default)")
+  .option("--tokens", "API token settings")
+  .option("--account", "Accounts page")
+  .action(async (opts) => {
+    await mercuryOpenCommand({
+      cards: opts.cards,
+      tokens: opts.tokens,
+      account: opts.account,
+    });
+  });
+
+mercury
+  .command("reveal")
+  .description("Reveal PAN/CVC via Vault (agent cards only); else use browser")
+  .option("--token <token>", "Mercury API token")
+  .option("--id <cardId>", "Card id")
+  .option("--json", "Machine-readable output")
+  .action(async (opts, cmd) => {
+    const parent = cmd.parent?.opts?.() ?? {};
+    await mercuryRevealCommand({
+      token: opts.token || parent.token,
+      id: opts.id,
+      json: opts.json,
+    });
   });
 
 // ── onlinesim.io (SMS / rent numbers) ─────────────────────────────

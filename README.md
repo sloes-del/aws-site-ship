@@ -100,6 +100,7 @@ aws-site-ship deploy ./fixtures/site --profile aws-site-ship --words forest lamp
 | `headless` | **yes** | create? → auth → init → deploy |
 | `open` | n/a | Open last URL |
 | `bypass-captcha` | n/a | Playbook: skip root CAPTCHA via Organizations |
+| `mercury *` | yes* | Mercury virtual debit cards ($1/day, cancel next day). *token via browser |
 | `onlinesim *` | yes | onlinesim.io balance / cheapest number / wait SMS / rent |
 
 ## Env vars
@@ -151,6 +152,43 @@ aws-site-ship onlinesim rent-close --tzid 10000
 | `AWS_SITE_SHIP_ONLINESIM_CHEAPEST=0` | disable default cheapest pick when `--country` omitted |
 
 Library entry: `src/onlinesim/client.ts` (`OnlineSimClient`, `getNumCheapest`, `waitForSms`, `parseTariffOffers`) — importable from other commands if you extend headless flows.
+
+## Mercury.com (virtual debit cards)
+
+Official [Cards API](https://docs.mercury.com/reference/createcard). **No browser automation** — token creation and PAN viewing use your real browser (`open`).
+
+**Default policy:** `$1` spend limit per **daily** interval, and **cancel next local midnight** (Mercury only exposes network expiry as MM/YYYY, so “expire tomorrow” = schedule `cancel`).
+
+```bash
+# 1) Browser: create API token
+aws-site-ship mercury auth
+# paste token:
+set MERCURY_API_TOKEN=secret-token:YOUR_TOKEN
+aws-site-ship mercury auth --token %MERCURY_API_TOKEN% --no-open
+
+# 2) Cardholders must already exist in the Mercury dashboard (browser)
+aws-site-ship mercury users
+aws-site-ship mercury accounts
+
+# 3) Issue $1/day virtual debit + open cards UI
+aws-site-ship mercury card --json
+aws-site-ship mercury policy
+
+# 4) Next day (or after cancelAt): permanently cancel
+aws-site-ship mercury cancel-due
+# or immediately:
+aws-site-ship mercury cancel --id <cardId>
+
+aws-site-ship mercury list
+aws-site-ship mercury open --cards
+```
+
+| Env | Use |
+|-----|-----|
+| `MERCURY_API_TOKEN` / `MERCURY_TOKEN` | API token (`secret-token:…`) |
+| `AWS_SITE_SHIP_MERCURY_TOKEN` | alias |
+
+Library: `src/mercury/client.ts` (`MercuryClient`, `createDebitCard`, `defaultDebitPolicy`).
 
 ## CAPTCHA “bypass” (supported)
 

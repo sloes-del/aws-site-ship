@@ -32,6 +32,26 @@ export type ShipConfig = {
     mode?: "sms" | "rent";
     at: string;
   };
+  /**
+   * Mercury API token (optional local convenience).
+   * Prefer MERCURY_API_TOKEN env — never commit this.
+   */
+  mercuryApiToken?: string;
+  mercuryAccountId?: string;
+  mercuryUserId?: string;
+  lastMercuryCard?: {
+    id: string;
+    lastFour: string;
+    accountId: string;
+    userId: string;
+    nickname?: string;
+    amountCents: number;
+    interval: string;
+    /** ISO time when card should be cancelled ("expire next day") */
+    cancelAt?: string;
+    status?: string;
+    at: string;
+  };
 };
 
 const DIR = join(homedir(), ".aws-site-ship");
